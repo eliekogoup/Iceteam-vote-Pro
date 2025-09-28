@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
 
-type Group = { id: number; nom: string };
-type Member = { id: number; nom: string; group_id: number };
+type Group = { id: number; name: string };
+type Member = { id: number; name: string; group_id: number };
 
 export default function MembresAdmin() {
+  const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
-  const [nom, setNom] = useState("");
+  const [name, setName] = useState("");
   const [groupId, setGroupId] = useState<number | "">("");
   const [editId, setEditId] = useState<number | null>(null);
 
@@ -33,11 +35,11 @@ export default function MembresAdmin() {
     e.preventDefault();
     if (!groupId) return;
     if (editId) {
-      await supabase.from("members").update({ nom, group_id: groupId }).eq("id", editId);
+      await supabase.from("members").update({ name, group_id: groupId }).eq("id", editId);
     } else {
-      await supabase.from("members").insert({ nom, group_id: groupId });
+      await supabase.from("members").insert({ name, group_id: groupId });
     }
-    setNom("");
+    setName("");
     setGroupId("");
     setEditId(null);
     fetchMembers();
@@ -45,7 +47,7 @@ export default function MembresAdmin() {
 
   function handleEdit(member: Member) {
     setEditId(member.id);
-    setNom(member.nom);
+    setName(member.name);
     setGroupId(member.group_id);
   }
 
@@ -58,13 +60,14 @@ export default function MembresAdmin() {
 
   return (
     <div style={{ padding: 32 }}>
+      <button onClick={() => router.push("/admin")}>← Retour à l'administration</button>
       <h2>Gestion des Membres</h2>
       <form onSubmit={handleAddOrEdit} style={{ marginBottom: 20 }}>
         <input
           type="text"
           placeholder="Nom du membre"
-          value={nom}
-          onChange={e => setNom(e.target.value)}
+          value={name}
+          onChange={e => setName(e.target.value)}
           required
         />
         <select
@@ -75,12 +78,12 @@ export default function MembresAdmin() {
           <option value="">-- Choisir un groupe --</option>
           {groups.map(group => (
             <option key={group.id} value={group.id}>
-              {group.nom}
+              {group.name}
             </option>
           ))}
         </select>
         <button type="submit">{editId ? "Modifier" : "Ajouter"}</button>
-        {editId && <button onClick={() => { setEditId(null); setNom(""); setGroupId(""); }}>Annuler</button>}
+        {editId && <button type="button" onClick={() => { setEditId(null); setName(""); setGroupId(""); }}>Annuler</button>}
       </form>
       {loading ? (
         <p>Chargement...</p>
@@ -98,9 +101,9 @@ export default function MembresAdmin() {
             {members.map(member => (
               <tr key={member.id}>
                 <td>{member.id}</td>
-                <td>{member.nom}</td>
+                <td>{member.name}</td>
                 <td>
-                  {groups.find(g => g.id === member.group_id)?.nom || "?"}
+                  {groups.find(g => g.id === member.group_id)?.name || "?"}
                 </td>
                 <td>
                   <button onClick={() => handleEdit(member)}>Editer</button>
