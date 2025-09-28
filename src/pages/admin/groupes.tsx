@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
 
 type Group = {
   id: number;
-  nom: string;
+  name: string;
 };
 
 export default function GroupesAdmin() {
+  const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
-  const [nom, setNom] = useState("");
+  const [name, setName] = useState("");
   const [editId, setEditId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -27,19 +29,19 @@ export default function GroupesAdmin() {
     e.preventDefault();
     if (editId) {
       // Mise à jour
-      await supabase.from("groups").update({ nom }).eq("id", editId);
+      await supabase.from("groups").update({ name }).eq("id", editId);
     } else {
       // Ajout
-      await supabase.from("groups").insert({ nom });
+      await supabase.from("groups").insert({ name });
     }
-    setNom("");
+    setName("");
     setEditId(null);
     fetchGroups();
   }
 
   function handleEdit(group: Group) {
     setEditId(group.id);
-    setNom(group.nom);
+    setName(group.name);
   }
 
   async function handleDelete(id: number) {
@@ -51,17 +53,18 @@ export default function GroupesAdmin() {
 
   return (
     <div style={{ padding: 32 }}>
+      <button onClick={() => router.push("/admin")}>← Retour à l'administration</button>
       <h2>Gestion des Groupes</h2>
       <form onSubmit={handleAddOrEdit} style={{ marginBottom: 20 }}>
         <input
           type="text"
           placeholder="Nom du groupe"
-          value={nom}
-          onChange={e => setNom(e.target.value)}
+          value={name}
+          onChange={e => setName(e.target.value)}
           required
         />
         <button type="submit">{editId ? "Modifier" : "Ajouter"}</button>
-        {editId && <button onClick={() => { setEditId(null); setNom(""); }}>Annuler</button>}
+        {editId && <button type="button" onClick={() => { setEditId(null); setName(""); }}>Annuler</button>}
       </form>
       {loading ? (
         <p>Chargement...</p>
@@ -78,7 +81,7 @@ export default function GroupesAdmin() {
             {groups.map(group => (
               <tr key={group.id}>
                 <td>{group.id}</td>
-                <td>{group.nom}</td>
+                <td>{group.name}</td>
                 <td>
                   <button onClick={() => handleEdit(group)}>Editer</button>
                   <button onClick={() => handleDelete(group.id)} style={{ color: "red" }}>Supprimer</button>
