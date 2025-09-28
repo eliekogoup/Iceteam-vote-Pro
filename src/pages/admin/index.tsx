@@ -31,6 +31,9 @@ export default function AdminDashboard() {
           <a href="/admin/editions">Gérer les éditions</a>
         </li>
         <li>
+          <a href="/admin/editions-questions">Lier questions & éditions</a>
+        </li>
+        <li>
           <a href="/admin/groupes">Gérer les groupes</a>
         </li>
         <li>
