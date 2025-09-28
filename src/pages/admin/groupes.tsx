@@ -1,25 +1,25 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-type Groupe = {
+type Group = {
   id: number;
   nom: string;
 };
 
 export default function GroupesAdmin() {
-  const [groupes, setGroupes] = useState<Groupe[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [nom, setNom] = useState("");
   const [editId, setEditId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetchGroupes();
+    fetchGroups();
   }, []);
 
-  async function fetchGroupes() {
+  async function fetchGroups() {
     setLoading(true);
-    const { data, error } = await supabase.from("groupes").select("*").order("id");
-    if (!error && data) setGroupes(data);
+    const { data, error } = await supabase.from("groups").select("*").order("id");
+    if (!error && data) setGroups(data);
     setLoading(false);
   }
 
@@ -27,25 +27,25 @@ export default function GroupesAdmin() {
     e.preventDefault();
     if (editId) {
       // Mise à jour
-      await supabase.from("groupes").update({ nom }).eq("id", editId);
+      await supabase.from("groups").update({ nom }).eq("id", editId);
     } else {
       // Ajout
-      await supabase.from("groupes").insert({ nom });
+      await supabase.from("groups").insert({ nom });
     }
     setNom("");
     setEditId(null);
-    fetchGroupes();
+    fetchGroups();
   }
 
-  function handleEdit(groupe: Groupe) {
-    setEditId(groupe.id);
-    setNom(groupe.nom);
+  function handleEdit(group: Group) {
+    setEditId(group.id);
+    setNom(group.nom);
   }
 
   async function handleDelete(id: number) {
     if (confirm("Supprimer ce groupe ?")) {
-      await supabase.from("groupes").delete().eq("id", id);
-      fetchGroupes();
+      await supabase.from("groups").delete().eq("id", id);
+      fetchGroups();
     }
   }
 
@@ -75,13 +75,13 @@ export default function GroupesAdmin() {
             </tr>
           </thead>
           <tbody>
-            {groupes.map(groupe => (
-              <tr key={groupe.id}>
-                <td>{groupe.id}</td>
-                <td>{groupe.nom}</td>
+            {groups.map(group => (
+              <tr key={group.id}>
+                <td>{group.id}</td>
+                <td>{group.nom}</td>
                 <td>
-                  <button onClick={() => handleEdit(groupe)}>Editer</button>
-                  <button onClick={() => handleDelete(groupe.id)} style={{ color: "red" }}>Supprimer</button>
+                  <button onClick={() => handleEdit(group)}>Editer</button>
+                  <button onClick={() => handleDelete(group.id)} style={{ color: "red" }}>Supprimer</button>
                 </td>
               </tr>
             ))}
