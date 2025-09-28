@@ -1,85 +1,87 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { DragDropContext, Droppable, Draggable, DropResult } from "react-beautiful-dnd";
 
-type Edition = { id: number; title: string };
+type Edition = { id: number; title: string; group_id: number; no_self_vote: boolean };
 type Member = { id: number; name: string; group_id: number };
 type Question = { id: number; text: string };
-type EditionQuestion = { edition_id: number; question_id: number };
 
 export default function VotePage() {
   const [editions, setEditions] = useState<Edition[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [editionQuestions, setEditionQuestions] = useState<EditionQuestion[]>([]);
-
   const [selectedEditionId, setSelectedEditionId] = useState<number | "">("");
   const [selectedMemberId, setSelectedMemberId] = useState<number | "">("");
-  const [rankings, setRankings] = useState<{ [questionId: number]: number }>({});
+  const [membersToRank, setMembersToRank] = useState<Member[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [questionId, setQuestionId] = useState<number | null>(null);
 
   // Charger éditions
   useEffect(() => {
     const fetchEditions = async () => {
-      const { data } = await supabase.from("editions").select("id, title").order("id");
+      const { data } = await supabase.from("editions").select("id, title, group_id, no_self_vote").order("id");
       if (data) setEditions(data);
     };
     fetchEditions();
   }, []);
 
-  // Charger les membres de l'édition (optionnel: filtrer par groupe)
+  // Charger membres de l'édition
   useEffect(() => {
     if (!selectedEditionId) return;
+    const edition = editions.find(e => e.id === selectedEditionId);
+    if (!edition) return;
     const fetchMembers = async () => {
-      // Récupérer le groupe lié à l'édition
-      const { data: edition } = await supabase
-        .from("editions")
-        .select("group_id")
-        .eq("id", selectedEditionId)
-        .single();
-      if (edition && edition.group_id) {
-        const { data: memb } = await supabase
-          .from("members")
-          .select("id, name, group_id")
-          .eq("group_id", edition.group_id)
-          .order("name");
-        setMembers(memb || []);
-      } else {
-        setMembers([]);
-      }
+      const { data } = await supabase
+        .from("members")
+        .select("id, name, group_id")
+        .eq("group_id", edition.group_id)
+        .order("name");
+      setMembers(data || []);
     };
     fetchMembers();
-  }, [selectedEditionId]);
+  }, [selectedEditionId, editions]);
 
-  // Charger questions liées à l'édition
+  // Charger la question liée à l'édition (si une seule question par édition)
   useEffect(() => {
     if (!selectedEditionId) return;
-    const fetchEditionQuestions = async () => {
+    const fetchQuestion = async () => {
+      // On suppose qu'il y a une question unique liée à cette édition, sinon à adapter
       const { data: eq } = await supabase
         .from("editions_questions")
-        .select("edition_id, question_id")
+        .select("question_id")
         .eq("edition_id", selectedEditionId);
-      setEditionQuestions(eq || []);
       if (eq && eq.length > 0) {
-        const questionIds = eq.map((e: EditionQuestion) => e.question_id);
-        const { data: qs } = await supabase
-          .from("questions")
-          .select("id, text")
-          .in("id", questionIds);
-        setQuestions(qs || []);
+        setQuestionId(eq[0].question_id);
       } else {
-        setQuestions([]);
+        setQuestionId(null);
       }
     };
-    fetchEditionQuestions();
+    fetchQuestion();
   }, [selectedEditionId]);
 
-  // Gestion des classements
-  const handleRankingChange = (questionId: number, value: number) => {
-    setRankings((prev) => ({ ...prev, [questionId]: value }));
+  // Préparer la liste des membres à classer (après choix du votant)
+  useEffect(() => {
+    if (!selectedMemberId) return;
+    const edition = editions.find(e => e.id === selectedEditionId);
+    if (!edition) return;
+    // Filtrer le membre soi-même si no_self_vote activé
+    let filtered = members;
+    if (edition.no_self_vote) {
+      filtered = members.filter(m => m.id !== selectedMemberId);
+    }
+    setMembersToRank(filtered);
+  }, [selectedMemberId, members, editions, selectedEditionId]);
+
+  // Drag & drop handlers
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const reordered = Array.from(membersToRank);
+    const [removed] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, removed);
+    setMembersToRank(reordered);
   };
 
-  // Soumission du vote
+  // Soumission du classement
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -87,17 +89,17 @@ export default function VotePage() {
       setError("Merci de sélectionner une édition et un membre.");
       return;
     }
-    // Vérifier que tous les classements sont saisis
-    if (questions.some((q) => !rankings[q.id])) {
-      setError("Merci de classer toutes les questions.");
+    if (!questionId) {
+      setError("Aucune question liée à cette édition.");
       return;
     }
-    // Enregistrer chaque réponse dans la table votes
-    const inserts = questions.map((q) => ({
+    // Création des votes avec ranking = position
+    const inserts = membersToRank.map((m, idx) => ({
       edition_id: selectedEditionId,
-      question_id: q.id,
+      question_id: questionId,
       voter_id: selectedMemberId,
-      ranking: rankings[q.id],
+      ranking: idx + 1,
+      // On peut ajouter d'autres champs si besoin
     }));
     const { error: insertError } = await supabase.from("votes").insert(inserts);
     if (insertError) {
@@ -117,7 +119,7 @@ export default function VotePage() {
 
   return (
     <div style={{ padding: 32, maxWidth: 600, margin: "auto" }}>
-      <h1>Voter pour une édition</h1>
+      <h1>Classement des membres</h1>
       <form onSubmit={handleSubmit}>
         <div>
           <label>Édition :</label>
@@ -126,9 +128,9 @@ export default function VotePage() {
             onChange={(e) => {
               setSelectedEditionId(Number(e.target.value));
               setSelectedMemberId("");
-              setQuestions([]);
-              setRankings({});
+              setMembersToRank([]);
               setSubmitted(false);
+              setError(null);
             }}
             required
           >
@@ -142,7 +144,7 @@ export default function VotePage() {
         </div>
         {selectedEditionId && (
           <div>
-            <label>Membre :</label>
+            <label>Je suis :</label>
             <select
               value={selectedMemberId}
               onChange={(e) => setSelectedMemberId(Number(e.target.value))}
@@ -157,30 +159,47 @@ export default function VotePage() {
             </select>
           </div>
         )}
-        {selectedEditionId && selectedMemberId && questions.length > 0 && (
+        {selectedEditionId && selectedMemberId && (
           <div>
-            <h3>Classez chaque question (1 = meilleure note, etc.)</h3>
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              {questions.map((q) => (
-                <li key={q.id} style={{ marginBottom: 12 }}>
-                  <label>
-                    {q.text}
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={rankings[q.id] || ""}
-                      onChange={(e) =>
-                        handleRankingChange(q.id, Number(e.target.value))
-                      }
-                      required
-                      style={{ marginLeft: 10, width: 60 }}
-                    />
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <button type="submit">Valider mon vote</button>
+            <h3>Classez les membres par ordre de préférence (1er en haut)</h3>
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="membersList">
+                {(provided) => (
+                  <ul
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    style={{ listStyle: "none", padding: 0 }}
+                  >
+                    {membersToRank.map((m, idx) => (
+                      <Draggable key={m.id} draggableId={m.id.toString()} index={idx}>
+                        {(prov) => (
+                          <li
+                            ref={prov.innerRef}
+                            {...prov.draggableProps}
+                            {...prov.dragHandleProps}
+                            style={{
+                              background: "#f8f8ff",
+                              marginBottom: 8,
+                              padding: 12,
+                              borderRadius: 5,
+                              border: "1px solid #ddd",
+                              ...prov.draggableProps.style,
+                            }}
+                          >
+                            <span style={{ marginRight: 12, fontWeight: "bold" }}>{idx + 1}</span>
+                            {m.name}
+                          </li>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </ul>
+                )}
+              </Droppable>
+            </DragDropContext>
+            <button type="submit" style={{ marginTop: 18 }}>
+              Valider mon classement
+            </button>
           </div>
         )}
         {error && (
