@@ -1,58 +1,58 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-type Groupe = { id: number; nom: string };
-type Membre = { id: number; nom: string; groupe_id: number };
+type Group = { id: number; nom: string };
+type Member = { id: number; nom: string; group_id: number };
 
 export default function MembresAdmin() {
-  const [membres, setMembres] = useState<Membre[]>([]);
-  const [groupes, setGroupes] = useState<Groupe[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [nom, setNom] = useState("");
-  const [groupeId, setGroupeId] = useState<number | "">("");
+  const [groupId, setGroupId] = useState<number | "">("");
   const [editId, setEditId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetchGroupes();
-    fetchMembres();
+    fetchGroups();
+    fetchMembers();
   }, []);
 
-  async function fetchGroupes() {
-    const { data } = await supabase.from("groupes").select("*").order("id");
-    if (data) setGroupes(data);
+  async function fetchGroups() {
+    const { data } = await supabase.from("groups").select("*").order("id");
+    if (data) setGroups(data);
   }
 
-  async function fetchMembres() {
+  async function fetchMembers() {
     setLoading(true);
-    const { data, error } = await supabase.from("membres").select("*").order("id");
-    if (!error && data) setMembres(data);
+    const { data, error } = await supabase.from("members").select("*").order("id");
+    if (!error && data) setMembers(data);
     setLoading(false);
   }
 
   async function handleAddOrEdit(e: React.FormEvent) {
     e.preventDefault();
-    if (!groupeId) return;
+    if (!groupId) return;
     if (editId) {
-      await supabase.from("membres").update({ nom, groupe_id: groupeId }).eq("id", editId);
+      await supabase.from("members").update({ nom, group_id: groupId }).eq("id", editId);
     } else {
-      await supabase.from("membres").insert({ nom, groupe_id: groupeId });
+      await supabase.from("members").insert({ nom, group_id: groupId });
     }
     setNom("");
-    setGroupeId("");
+    setGroupId("");
     setEditId(null);
-    fetchMembres();
+    fetchMembers();
   }
 
-  function handleEdit(membre: Membre) {
-    setEditId(membre.id);
-    setNom(membre.nom);
-    setGroupeId(membre.groupe_id);
+  function handleEdit(member: Member) {
+    setEditId(member.id);
+    setNom(member.nom);
+    setGroupId(member.group_id);
   }
 
   async function handleDelete(id: number) {
     if (confirm("Supprimer ce membre ?")) {
-      await supabase.from("membres").delete().eq("id", id);
-      fetchMembres();
+      await supabase.from("members").delete().eq("id", id);
+      fetchMembers();
     }
   }
 
@@ -68,19 +68,19 @@ export default function MembresAdmin() {
           required
         />
         <select
-          value={groupeId}
-          onChange={e => setGroupeId(Number(e.target.value))}
+          value={groupId}
+          onChange={e => setGroupId(Number(e.target.value))}
           required
         >
           <option value="">-- Choisir un groupe --</option>
-          {groupes.map(groupe => (
-            <option key={groupe.id} value={groupe.id}>
-              {groupe.nom}
+          {groups.map(group => (
+            <option key={group.id} value={group.id}>
+              {group.nom}
             </option>
           ))}
         </select>
         <button type="submit">{editId ? "Modifier" : "Ajouter"}</button>
-        {editId && <button onClick={() => { setEditId(null); setNom(""); setGroupeId(""); }}>Annuler</button>}
+        {editId && <button onClick={() => { setEditId(null); setNom(""); setGroupId(""); }}>Annuler</button>}
       </form>
       {loading ? (
         <p>Chargement...</p>
@@ -95,16 +95,16 @@ export default function MembresAdmin() {
             </tr>
           </thead>
           <tbody>
-            {membres.map(membre => (
-              <tr key={membre.id}>
-                <td>{membre.id}</td>
-                <td>{membre.nom}</td>
+            {members.map(member => (
+              <tr key={member.id}>
+                <td>{member.id}</td>
+                <td>{member.nom}</td>
                 <td>
-                  {groupes.find(g => g.id === membre.groupe_id)?.nom || "?"}
+                  {groups.find(g => g.id === member.group_id)?.nom || "?"}
                 </td>
                 <td>
-                  <button onClick={() => handleEdit(membre)}>Editer</button>
-                  <button onClick={() => handleDelete(membre.id)} style={{ color: "red" }}>Supprimer</button>
+                  <button onClick={() => handleEdit(member)}>Editer</button>
+                  <button onClick={() => handleDelete(member.id)} style={{ color: "red" }}>Supprimer</button>
                 </td>
               </tr>
             ))}
