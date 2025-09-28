@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 type Edition = { id: number; title: string };
-type Member = { id: number; name: string };
+type Member = { id: number; name: string; group_id: number };
 type Question = { id: number; text: string };
 type EditionQuestion = { edition_id: number; question_id: number };
 
@@ -27,16 +27,26 @@ export default function VotePage() {
     fetchEditions();
   }, []);
 
-  // Charger les membres de l'édition
+  // Charger les membres de l'édition (optionnel: filtrer par groupe)
   useEffect(() => {
     if (!selectedEditionId) return;
     const fetchMembers = async () => {
-      const { data } = await supabase
-        .from("members")
-        .select("id, name, group_id")
-        .order("name");
-      // Optionnel : filtrer par groupe de l’édition
-      setMembers(data || []);
+      // Récupérer le groupe lié à l'édition
+      const { data: edition } = await supabase
+        .from("editions")
+        .select("group_id")
+        .eq("id", selectedEditionId)
+        .single();
+      if (edition && edition.group_id) {
+        const { data: memb } = await supabase
+          .from("members")
+          .select("id, name, group_id")
+          .eq("group_id", edition.group_id)
+          .order("name");
+        setMembers(memb || []);
+      } else {
+        setMembers([]);
+      }
     };
     fetchMembers();
   }, [selectedEditionId]);
@@ -47,11 +57,11 @@ export default function VotePage() {
     const fetchEditionQuestions = async () => {
       const { data: eq } = await supabase
         .from("editions_questions")
-        .select("question_id")
+        .select("edition_id, question_id")
         .eq("edition_id", selectedEditionId);
       setEditionQuestions(eq || []);
       if (eq && eq.length > 0) {
-        const questionIds = eq.map((e: any) => e.question_id);
+        const questionIds = eq.map((e: EditionQuestion) => e.question_id);
         const { data: qs } = await supabase
           .from("questions")
           .select("id, text")
