@@ -144,7 +144,7 @@ export default function VotePage() {
         return;
       }
     }
-    // Construire le tableau d'inserts
+    // Construire le tableau d'inserts (sans member_id !)
     let inserts: any[] = [];
     questions.forEach(q => {
       rankings[q.id].forEach((member, idx) => {
@@ -152,8 +152,7 @@ export default function VotePage() {
           edition_id: selectedEditionId,
           question_id: q.id,
           voter_id: selectedMemberId,
-          ranking: idx + 1,
-          member_id: member.id // optionnel, mais tu peux le stocker si utile
+          ranking: idx + 1
         });
       });
     });
