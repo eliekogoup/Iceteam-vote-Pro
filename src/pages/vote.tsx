@@ -129,6 +129,7 @@ export default function VotePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
     if (!selectedEditionId || !selectedMemberId) {
       setError("Identité manquante. Merci de vous identifier.");
       return;
@@ -137,6 +138,7 @@ export default function VotePage() {
       setError("Aucune question liée à cette édition.");
       return;
     }
+
     // Vérifier que tous les classements sont faits
     for (const q of questions) {
       if (!rankings[q.id] || rankings[q.id].length !== membersToRank.length) {
@@ -144,9 +146,11 @@ export default function VotePage() {
         return;
       }
     }
-    // Construire le tableau d'inserts (sans member_id !)
+
+    // Construire le tableau d'inserts
     let inserts: any[] = [];
     questions.forEach(q => {
+      if (!Array.isArray(rankings[q.id])) return;
       rankings[q.id].forEach((member, idx) => {
         inserts.push({
           edition_id: selectedEditionId,
@@ -157,7 +161,16 @@ export default function VotePage() {
       });
     });
 
+    // DEBUG pour vérifier l'envoi à Supabase
+    console.log("inserts", inserts, Array.isArray(inserts), inserts.length);
+
+    if (!Array.isArray(inserts) || inserts.length === 0) {
+      setError("Aucun vote à enregistrer (bug d'initialisation du classement ?)");
+      return;
+    }
+
     const { error: insertError } = await supabase.from("votes").insert(inserts);
+
     if (insertError) {
       setError("Erreur lors de l'enregistrement du vote : " + insertError.message);
     } else {
