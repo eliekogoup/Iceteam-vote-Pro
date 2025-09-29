@@ -1,20 +1,33 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
 import { DragDropContext, Droppable, Draggable, DropResult } from "react-beautiful-dnd";
 
 type Edition = { id: number; title: string; group_id: number; no_self_vote: boolean };
 type Member = { id: number; name: string; group_id: number };
-type Question = { id: number; text: string };
 
 export default function VotePage() {
+  const router = useRouter();
   const [editions, setEditions] = useState<Edition[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [selectedEditionId, setSelectedEditionId] = useState<number | "">("");
-  const [selectedMemberId, setSelectedMemberId] = useState<number | "">("");
+  const [selectedEditionId, setSelectedEditionId] = useState<number | "">(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [membersToRank, setMembersToRank] = useState<Member[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [questionId, setQuestionId] = useState<number | null>(null);
+
+  // Récupération de l'identité depuis sessionStorage au mount
+  useEffect(() => {
+    const editionIdStr = sessionStorage.getItem("editionId");
+    const memberIdStr = sessionStorage.getItem("memberId");
+    if (!editionIdStr || !memberIdStr) {
+      router.replace("/identite");
+      return;
+    }
+    setSelectedEditionId(Number(editionIdStr));
+    setSelectedMemberId(Number(memberIdStr));
+  }, [router]);
 
   // Charger éditions
   useEffect(() => {
@@ -45,7 +58,6 @@ export default function VotePage() {
   useEffect(() => {
     if (!selectedEditionId) return;
     const fetchQuestion = async () => {
-      // On suppose qu'il y a une question unique liée à cette édition, sinon à adapter
       const { data: eq } = await supabase
         .from("editions_questions")
         .select("question_id")
@@ -59,12 +71,11 @@ export default function VotePage() {
     fetchQuestion();
   }, [selectedEditionId]);
 
-  // Préparer la liste des membres à classer (après choix du votant)
+  // Préparer la liste des membres à classer (après récup de membres)
   useEffect(() => {
-    if (!selectedMemberId) return;
+    if (selectedMemberId == null) return;
     const edition = editions.find(e => e.id === selectedEditionId);
     if (!edition) return;
-    // Filtrer le membre soi-même si no_self_vote activé
     let filtered = members;
     if (edition.no_self_vote) {
       filtered = members.filter(m => m.id !== selectedMemberId);
@@ -86,7 +97,7 @@ export default function VotePage() {
     e.preventDefault();
     setError(null);
     if (!selectedEditionId || !selectedMemberId) {
-      setError("Merci de sélectionner une édition et un membre.");
+      setError("Identité manquante. Merci de vous identifier.");
       return;
     }
     if (!questionId) {
@@ -99,15 +110,17 @@ export default function VotePage() {
       question_id: questionId,
       voter_id: selectedMemberId,
       ranking: idx + 1,
-      // On peut ajouter d'autres champs si besoin
     }));
     const { error: insertError } = await supabase.from("votes").insert(inserts);
     if (insertError) {
-      setError("Erreur lors de l'enregistrement du vote.");
+      setError("Erreur lors de l'enregistrement du vote : " + insertError.message);
     } else {
       setSubmitted(true);
     }
   };
+
+  // Affichage du nom du votant pour confirmation
+  const memberName = members.find(m => m.id === selectedMemberId)?.name || "";
 
   if (submitted) {
     return (
@@ -117,91 +130,59 @@ export default function VotePage() {
     );
   }
 
+  // Attente de chargement de l'identité
+  if (selectedEditionId == null || selectedMemberId == null) {
+    return <div style={{ padding: 32 }}>Chargement...</div>;
+  }
+
+  // Infos édition
+  const editionTitle = editions.find(e => e.id === selectedEditionId)?.title || "";
+
   return (
     <div style={{ padding: 32, maxWidth: 600, margin: "auto" }}>
       <h1>Classement des membres</h1>
+      <p><b>Édition :</b> {editionTitle}</p>
+      <p><b>Je suis :</b> {memberName}</p>
       <form onSubmit={handleSubmit}>
-        <div>
-          <label>Édition :</label>
-          <select
-            value={selectedEditionId}
-            onChange={(e) => {
-              setSelectedEditionId(Number(e.target.value));
-              setSelectedMemberId("");
-              setMembersToRank([]);
-              setSubmitted(false);
-              setError(null);
-            }}
-            required
-          >
-            <option value="">-- Choisir une édition --</option>
-            {editions.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.title}
-              </option>
-            ))}
-          </select>
-        </div>
-        {selectedEditionId && (
-          <div>
-            <label>Je suis :</label>
-            <select
-              value={selectedMemberId}
-              onChange={(e) => setSelectedMemberId(Number(e.target.value))}
-              required
-            >
-              <option value="">-- Choisir votre nom --</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        {selectedEditionId && selectedMemberId && (
-          <div>
-            <h3>Classez les membres par ordre de préférence (1er en haut)</h3>
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="membersList">
-                {(provided) => (
-                  <ul
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                    style={{ listStyle: "none", padding: 0 }}
-                  >
-                    {membersToRank.map((m, idx) => (
-                      <Draggable key={m.id} draggableId={m.id.toString()} index={idx}>
-                        {(prov) => (
-                          <li
-                            ref={prov.innerRef}
-                            {...prov.draggableProps}
-                            {...prov.dragHandleProps}
-                            style={{
-                              background: "#f8f8ff",
-                              marginBottom: 8,
-                              padding: 12,
-                              borderRadius: 5,
-                              border: "1px solid #ddd",
-                              ...prov.draggableProps.style,
-                            }}
-                          >
-                            <span style={{ marginRight: 12, fontWeight: "bold" }}>{idx + 1}</span>
-                            {m.name}
-                          </li>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </ul>
-                )}
-              </Droppable>
-            </DragDropContext>
-            <button type="submit" style={{ marginTop: 18 }}>
-              Valider mon classement
-            </button>
-          </div>
-        )}
+        <h3>Classez les membres par ordre de préférence (1er en haut)</h3>
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="membersList">
+            {(provided) => (
+              <ul
+                {...provided.droppableProps}
+                ref={provided.innerRef}
+                style={{ listStyle: "none", padding: 0 }}
+              >
+                {membersToRank.map((m, idx) => (
+                  <Draggable key={m.id} draggableId={m.id.toString()} index={idx}>
+                    {(prov) => (
+                      <li
+                        ref={prov.innerRef}
+                        {...prov.draggableProps}
+                        {...prov.dragHandleProps}
+                        style={{
+                          background: "#f8f8ff",
+                          marginBottom: 8,
+                          padding: 12,
+                          borderRadius: 5,
+                          border: "1px solid #ddd",
+                          ...prov.draggableProps.style,
+                        }}
+                      >
+                        <span style={{ marginRight: 12, fontWeight: "bold" }}>{idx + 1}</span>
+                        {m.name}
+                      </li>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </ul>
+            )}
+          </Droppable>
+        </DragDropContext>
+        <button type="submit" style={{ marginTop: 18 }}>
+          Valider mon classement
+        </button>
         {error && (
           <div style={{ color: "red", marginTop: 10 }}>
             {error}
