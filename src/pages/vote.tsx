@@ -60,7 +60,6 @@ export default function VotePage() {
   useEffect(() => {
     if (!selectedEditionId) return;
     const fetchQuestions = async () => {
-      // Récupérer toutes les questions liées à cette édition
       const { data: editionQuestions } = await supabase
         .from("editions_questions")
         .select("question_id")
@@ -73,18 +72,6 @@ export default function VotePage() {
           .select("id, text")
           .in("id", questionIds);
         setQuestions(qs || []);
-
-        // Initialiser un ranking pour chaque question
-        setRankings(prev => {
-          const newRankings: { [questionId: number]: Member[] } = { ...prev };
-          questionIds.forEach(qid => {
-            if (!newRankings[qid]) {
-              // On initialise avec les membres à classer
-              newRankings[qid] = [];
-            }
-          });
-          return newRankings;
-        });
       } else {
         setQuestions([]);
       }
@@ -94,7 +81,7 @@ export default function VotePage() {
 
   // Préparer la liste des membres à classer (hors soi-même si no_self_vote)
   useEffect(() => {
-    if (selectedMemberId == null) return;
+    if (selectedMemberId == null || questions.length === 0) return;
     const edition = editions.find(e => e.id === selectedEditionId);
     if (!edition) return;
     let filtered = members;
@@ -103,11 +90,11 @@ export default function VotePage() {
     }
     setMembersToRank(filtered);
 
-    // Réinitialiser rankings pour chaque question avec la liste des membres
-    setRankings(prev => {
+    // Initialiser rankings pour chaque question avec la liste des membres
+    setRankings(() => {
       const newRankings: { [questionId: number]: Member[] } = {};
       questions.forEach(q => {
-        newRankings[q.id] = filtered.slice(); // copie
+        newRankings[q.id] = filtered.slice();
       });
       return newRankings;
     });
@@ -162,7 +149,7 @@ export default function VotePage() {
     });
 
     // DEBUG pour vérifier l'envoi à Supabase
-    console.log("inserts", inserts, Array.isArray(inserts), inserts.length);
+    console.log("inserts", inserts, Array.isArray(inserts), inserts.length, JSON.stringify(inserts));
 
     if (!Array.isArray(inserts) || inserts.length === 0) {
       setError("Aucun vote à enregistrer (bug d'initialisation du classement ?)");
