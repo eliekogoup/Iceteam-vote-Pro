@@ -17,14 +17,14 @@ export default function AdminLogin() {
       setError("Identifiants incorrects.");
       return;
     }
-    // Vérifier le rôle admin dans "profiles"
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
+    // Vérification admin dans "members"
+    const { data: membre, error: membreError } = await supabase
+      .from("members")
       .select("is_admin")
-      .eq("id", authData.user.id)
+      .eq("user_id", authData.user.id)
       .single();
 
-    if (profileError || !profile?.is_admin) {
+    if (membreError || !membre?.is_admin) {
       setError("Vous n'êtes pas administrateur.");
       return;
     }
