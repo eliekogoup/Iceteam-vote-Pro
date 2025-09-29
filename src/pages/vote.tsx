@@ -156,6 +156,7 @@ export default function VotePage() {
       return;
     }
 
+    // NE PAS METTRE .select() après insert ici !
     const { error: insertError } = await supabase.from("votes").insert(inserts);
 
     if (insertError) {
