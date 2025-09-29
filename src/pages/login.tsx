@@ -14,7 +14,8 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
     setLoading(false);
     if (!error) {
-      router.push("/admin");
+      // Redirige vers la page d'accueil
+      router.push("/");
     } else {
       alert(error.message);
     }
@@ -22,7 +23,7 @@ export default function LoginPage() {
 
   return (
     <main style={{padding:40, maxWidth:400, margin:"auto"}}>
-      <h1>Connexion Admin</h1>
+      <h1>Connexion</h1>
       <form onSubmit={handleLogin}>
         <input
           type="email"
@@ -46,6 +47,4 @@ export default function LoginPage() {
       </form>
     </main>
   );
-
 }
-
