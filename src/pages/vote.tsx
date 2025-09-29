@@ -18,6 +18,7 @@ export default function VotePage() {
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasAlreadyVoted, setHasAlreadyVoted] = useState(false);
 
   // Récupération de l'identité depuis sessionStorage au mount
   useEffect(() => {
@@ -101,6 +102,24 @@ export default function VotePage() {
     // eslint-disable-next-line
   }, [selectedMemberId, members, editions, selectedEditionId, questions.length]);
 
+  // Vérifier si la personne a déjà voté pour cette édition
+  useEffect(() => {
+    if (selectedEditionId && selectedMemberId) {
+      supabase
+        .from("votes")
+        .select("id")
+        .eq("edition_id", selectedEditionId)
+        .eq("voter_id", selectedMemberId)
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setHasAlreadyVoted(true);
+          } else {
+            setHasAlreadyVoted(false);
+          }
+        });
+    }
+  }, [selectedEditionId, selectedMemberId]);
+
   // Drag & drop handlers
   const handleDragEnd = (questionId: number) => (result: DropResult) => {
     if (!result.destination) return;
@@ -116,6 +135,11 @@ export default function VotePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Confirmation
+    if (!window.confirm("Êtes-vous sûr de votre classement ? Vous ne pourrez plus modifier vos votes après validation.")) {
+      return;
+    }
 
     if (!selectedEditionId || !selectedMemberId) {
       setError("Identité manquante. Merci de vous identifier.");
@@ -134,6 +158,19 @@ export default function VotePage() {
       }
     }
 
+    // Double check : empêche double vote même si la vérif useEffect a échoué
+    const { data: already, error: alreadyError } = await supabase
+      .from("votes")
+      .select("id")
+      .eq("edition_id", selectedEditionId)
+      .eq("voter_id", selectedMemberId);
+
+    if (already && already.length > 0) {
+      setHasAlreadyVoted(true);
+      setError("Vous avez déjà voté pour cette édition.");
+      return;
+    }
+
     // Construire le tableau d'inserts
     let inserts: any[] = [];
     questions.forEach(q => {
@@ -148,15 +185,11 @@ export default function VotePage() {
       });
     });
 
-    // DEBUG pour vérifier l'envoi à Supabase
-    console.log("inserts", inserts, Array.isArray(inserts), inserts.length, JSON.stringify(inserts));
-
     if (!Array.isArray(inserts) || inserts.length === 0) {
       setError("Aucun vote à enregistrer (bug d'initialisation du classement ?)");
       return;
     }
 
-    // NE PAS METTRE .select() après insert ici !
     const { error: insertError } = await supabase.from("votes").insert(inserts);
 
     if (insertError) {
@@ -168,6 +201,14 @@ export default function VotePage() {
 
   // Affichage du nom du votant pour confirmation
   const memberName = members.find(m => m.id === selectedMemberId)?.name || "";
+
+  if (hasAlreadyVoted) {
+    return (
+      <div style={{ padding: 32 }}>
+        <h2>Vous avez déjà voté pour cette édition.<br />Il n'est pas possible de voter une seconde fois.</h2>
+      </div>
+    );
+  }
 
   if (submitted) {
     return (
