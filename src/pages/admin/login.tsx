@@ -1,49 +1,62 @@
 import { useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
 import { useRouter } from "next/router";
+import { supabase } from "../../lib/supabaseClient";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
-  const [loading, setLoading] = useState(false);
+export default function AdminLogin() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  async function handleLogin(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    setLoading(false);
-    if (!error) {
-      router.push("/admin");
-    } else {
-      alert(error.message);
+    setError("");
+    // Authentification Supabase Auth
+    const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError || !authData.user) {
+      setError("Identifiants incorrects.");
+      return;
     }
-  }
+    // Vérifier le rôle admin dans "profiles"
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", authData.user.id)
+      .single();
+
+    if (profileError || !profile?.is_admin) {
+      setError("Vous n'êtes pas administrateur.");
+      return;
+    }
+    // Auth OK => session admin
+    sessionStorage.setItem("isAdmin", "1");
+    sessionStorage.setItem("adminEmail", email);
+    router.push("/admin");
+  };
 
   return (
-    <main style={{padding:40, maxWidth:400, margin:"auto"}}>
-      <h1>Connexion Admin</h1>
-      <form onSubmit={handleLogin}>
+    <div style={{ padding: 32, maxWidth: 400, margin: "auto" }}>
+      <h1>Connexion Administration</h1>
+      <form onSubmit={handleSubmit}>
         <input
           type="email"
-          placeholder="Email"
+          placeholder="Email administrateur"
           value={email}
+          onChange={e => setEmail(e.target.value)}
           required
-          onChange={e=>setEmail(e.target.value)}
-          style={{width:"100%",marginBottom:10,padding:8}}
+          style={{ fontSize: 18, padding: 10, width: "100%", marginBottom: 12 }}
         />
         <input
           type="password"
           placeholder="Mot de passe"
-          value={pass}
+          value={password}
+          onChange={e => setPassword(e.target.value)}
           required
-          onChange={e=>setPass(e.target.value)}
-          style={{width:"100%",marginBottom:10,padding:8}}
+          style={{ fontSize: 18, padding: 10, width: "100%" }}
         />
-        <button type="submit" style={{width:"100%",padding:10}} disabled={loading}>
-          {loading ? "Connexion..." : "Connexion"}
-        </button>
+        <button type="submit" style={{ marginTop: 16, width: "100%" }}>Connexion</button>
+        {error && <div style={{ color: "red", marginTop: 10 }}>{error}</div>}
       </form>
-    </main>
+    </div>
   );
 }
