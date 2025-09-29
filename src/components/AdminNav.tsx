@@ -1,12 +1,22 @@
 import Link from "next/link";
 
-export default function AdminNav() {
+export default function AdminNav({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <nav style={{marginBottom:30}}>
-      <Link href="/admin">Dashboard</Link> |{" "}
-      <Link href="/admin/editions">Éditions</Link> |{" "}
-      <Link href="/admin/questions">Questions</Link> |{" "}
-      <Link href="/admin/votes">Votes</Link>
+    <nav>
+      <ul style={{display: "flex", gap: 20, listStyle: "none", padding: 0}}>
+        <li>
+          <Link href="/">Accueil</Link>
+        </li>
+        {isAdmin && (
+          <li>
+            <Link href="/admin">Administration</Link>
+          </li>
+        )}
+        <li>
+          <Link href="/vote">Voter</Link>
+        </li>
+        {/* Ajoute d'autres liens ici */}
+      </ul>
     </nav>
   );
 }
