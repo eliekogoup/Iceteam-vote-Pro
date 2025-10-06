@@ -140,14 +140,14 @@ export default function HomePage() {
               fontWeight: '800',
               margin: '0 0 16px 0'
             }}>
-              🗳️ Iceteam Vote Pro
+              🗳️ Iceteam Elipsos
             </h1>
             <p style={{ 
               fontSize: '18px', 
               color: '#6b7280',
               margin: 0
             }}>
-              Bienvenue sur le portail de vote collaboratif !
+              Bienvenue sur Ice team Awards !
             </p>
           </div>
           
