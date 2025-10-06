@@ -34,8 +34,8 @@ export async function checkEditionStatus(editionId: number) {
     }
 
     // Filtrer les membres actifs
-    const activeMembers = groupMembers?.filter(mg => 
-      mg.members && mg.members.is_active !== false
+    const activeMembers = groupMembers?.filter((mg: any) => 
+      mg.members && (mg.members as any).is_active !== false
     ) || []
     
     console.log(`👥 Membres actifs du groupe ${edition.group_id}:`, activeMembers.length);
