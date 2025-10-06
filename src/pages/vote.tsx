@@ -92,13 +92,18 @@ export default function VotePage() {
         setQuestions(questionsList);
 
         // Récupérer l'info du groupe depuis la première question
-        const edition = questionsResult.data[0]?.editions;
-        if (edition) {
+        // `editions` peut être renvoyé comme un tableau (inner join). Normaliser ici.
+        // Utiliser une variable any pour satisfaire le typage TS lorsque `editions` peut être un tableau
+        let editionAny: any = questionsResult.data[0]?.editions;
+        if (Array.isArray(editionAny)) {
+          editionAny = editionAny[0];
+        }
+        if (editionAny) {
           // 🚀 Charger les membres du groupe en parallèle
           const membersResult = await supabase
             .from("members")
             .select("id, nom, prenom, group_id")
-            .eq("group_id", edition.group_id)
+            .eq("group_id", editionAny.group_id)
             .eq("is_active", true); // ✅ Optimisation: filtrer directement en DB
 
           if (membersResult.data) {
@@ -109,7 +114,7 @@ export default function VotePage() {
             }));
 
             // Filtrer selon no_self_vote
-            const membersToRank = edition.no_self_vote 
+            const membersToRank = editionAny.no_self_vote
               ? convertedMembers.filter(m => m.id !== selectedMemberId)
               : convertedMembers;
 
