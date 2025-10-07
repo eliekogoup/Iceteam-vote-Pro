@@ -153,7 +153,13 @@ export const useSuperAdmin = (): UseSuperAdminReturn => {
   }, [])
 
   const isSuperAdmin = !!superAdmin
-  console.log('👑 État super admin calculé:', { superAdmin, isSuperAdmin })
+  
+  // Log seulement lors des changements d'état significatifs
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('👑 État super admin mis à jour:', { superAdmin, isSuperAdmin })
+    }
+  }, [superAdmin, isSuperAdmin])
 
   return {
     user,
