@@ -15,25 +15,25 @@ export default function SuperAdminDashboard() {
   });
 
   useEffect(() => {
-    if (isSuperAdmin) {
-      async function fetchStats() {
-        const [editions, questions, members, votes] = await Promise.all([
-          supabase.from("editions").select("id", { count: "exact" }),
-          supabase.from("questions").select("id", { count: "exact" }),
-          supabase.from("members").select("id", { count: "exact" }),
-          supabase.from("votes").select("id", { count: "exact" })
-        ]);
+    async function fetchStats() {
+      if (!isSuperAdmin) return;
+      
+      const [editions, questions, members, votes] = await Promise.all([
+        supabase.from("editions").select("id", { count: "exact" }),
+        supabase.from("questions").select("id", { count: "exact" }),
+        supabase.from("members").select("id", { count: "exact" }),
+        supabase.from("votes").select("id", { count: "exact" })
+      ]);
 
-        setStats({
-          editions: editions.count || 0,
-          questions: questions.count || 0,
-          members: members.count || 0,
-          votes: votes.count || 0
-        });
-      }
-      fetchStats();
+      setStats({
+        editions: editions.count || 0,
+        questions: questions.count || 0,
+        members: members.count || 0,
+        votes: votes.count || 0
+      });
     }
-  }, [isSuperAdmin]);
+    fetchStats();
+  }, []); // Supprimer la dépendance isSuperAdmin
 
   if (isLoading) {
     return (
