@@ -44,7 +44,8 @@ jobs:
           action: "upload"
           app_location: "/"
           api_location: ""
-          output_location: ""
+          output_location: "out"
+          skip_deploy_on_missing_secrets: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
