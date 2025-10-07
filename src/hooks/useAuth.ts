@@ -115,7 +115,7 @@ export const useAuth = (): UseAuthReturn => {
     }
   }
 
-  // Récupérer l'utilisateur actuel
+  // Récupérer l'utilisateur actuel avec stabilisation
   const refreshUser = async () => {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -127,12 +127,26 @@ export const useAuth = (): UseAuthReturn => {
           email: authUser.email!,
           user_metadata: authUser.user_metadata
         }
-        setUser(userData)
+        
+        // Éviter les re-renders inutiles
+        setUser(prevUser => {
+          if (prevUser?.id === userData.id) {
+            return prevUser; // Pas de changement
+          }
+          return userData;
+        });
+        
         console.log('👤 User state mis à jour:', userData)
 
         // Récupérer les données du membre
         const memberData = await fetchMemberData(authUser.id, authUser.email!)
-        setMember(memberData)
+        setMember(prevMember => {
+          if (prevMember?.user_id === memberData?.user_id) {
+            return prevMember; // Pas de changement
+          }
+          return memberData;
+        });
+        
         console.log('👥 Member state mis à jour:', memberData)
       } else {
         console.log('❌ Aucun utilisateur authentifié')
@@ -223,7 +237,7 @@ export const useAuth = (): UseAuthReturn => {
   // Mettre à jour le statut admin quand l'utilisateur change
   useEffect(() => {
     async function updateAdminStatus() {
-      if (user) {
+      if (user?.id) {
         const adminStatus = await checkIsAdmin()
         setIsAdmin(adminStatus)
         console.log('🔑 État admin mis à jour:', { user: user.email, isAdmin: adminStatus })
@@ -232,7 +246,7 @@ export const useAuth = (): UseAuthReturn => {
       }
     }
     updateAdminStatus()
-  }, [user])
+  }, [user?.id]); // Utiliser user?.id au lieu de user complet
 
   return {
     user,

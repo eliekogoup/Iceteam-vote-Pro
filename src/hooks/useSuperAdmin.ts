@@ -58,7 +58,7 @@ export const useSuperAdmin = (): UseSuperAdminReturn => {
     }
   }
 
-  // Récupérer l'utilisateur actuel
+  // Récupérer l'utilisateur actuel avec stabilisation
   const refreshUser = async () => {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -70,12 +70,26 @@ export const useSuperAdmin = (): UseSuperAdminReturn => {
           email: authUser.email!,
           user_metadata: authUser.user_metadata
         }
-        setUser(userData)
+        
+        // Éviter les re-renders inutiles
+        setUser(prevUser => {
+          if (prevUser?.id === userData.id) {
+            return prevUser; // Pas de changement
+          }
+          return userData;
+        });
+        
         console.log('👤 User state mis à jour:', userData)
 
         // Récupérer les données du super admin
         const superAdminData = await fetchSuperAdminData(authUser.id, authUser.email!)
-        setSuperAdmin(superAdminData)
+        setSuperAdmin(prevSuperAdmin => {
+          if (prevSuperAdmin?.user_id === superAdminData?.user_id) {
+            return prevSuperAdmin; // Pas de changement
+          }
+          return superAdminData;
+        });
+        
         console.log('👑 Super admin state mis à jour:', superAdminData)
       } else {
         console.log('❌ Aucun utilisateur authentifié')
