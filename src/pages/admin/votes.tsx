@@ -46,22 +46,30 @@ export default function VotesPage() {
       return;
     }
     const fetchAll = async () => {
-      // Questions pour l'édition
-      const { data: edq } = await supabase.from("editions_questions").select("question_id").eq("edition_id", selectedEditionId);
-      const qids = edq?.map((e: any) => e.question_id) || [];
-      const { data: qs } = await supabase.from("questions").select("id, text").in("id", qids);
-      setQuestions(qs || []);
-      // Membres pour l'édition
       const edition = editions.find(e => e.id === selectedEditionId);
-      let ms: any[] = [];
-      if (edition) {
-        const { data } = await supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name");
-        ms = data || [];
+      
+      // Exécuter toutes les requêtes en parallèle pour optimiser la performance
+      const [edqResult, vsResult, msResult] = await Promise.all([
+        // Questions pour l'édition
+        supabase.from("editions_questions").select("question_id").eq("edition_id", selectedEditionId),
+        // Votes
+        supabase.from("votes").select("id, edition_id, question_id, voter_id, member_id, ranking").eq("edition_id", selectedEditionId),
+        // Membres pour l'édition (si édition trouvée)
+        edition ? supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name") : Promise.resolve({ data: [] })
+      ]);
+      
+      // Questions
+      const qids = edqResult.data?.map((e: any) => e.question_id) || [];
+      if (qids.length > 0) {
+        const { data: qs } = await supabase.from("questions").select("id, text").in("id", qids);
+        setQuestions(qs || []);
+      } else {
+        setQuestions([]);
       }
-      setMembers(ms);
-      // Votes
-      const { data: vs } = await supabase.from("votes").select("id, edition_id, question_id, voter_id, member_id, ranking").eq("edition_id", selectedEditionId);
-      setVotes(vs || []);
+      
+      // Membres et votes
+      setMembers(msResult.data || []);
+      setVotes(vsResult.data || []);
     };
     fetchAll();
   }, [selectedEditionId, editions, isAuthorized]);

@@ -59,8 +59,8 @@ export default function MembresAdmin() {
   useEffect(() => {
     async function loadData() {
       if (isAdmin) {
-        await loadMembers();
-        await loadGroups();
+        // Charger en parallèle pour optimiser la performance
+        await Promise.all([loadMembers(), loadGroups()]);
       }
       setLoading(false);
     }

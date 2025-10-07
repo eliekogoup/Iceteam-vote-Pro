@@ -52,42 +52,33 @@ export default function ResultatsPage() {
         const edition = editions.find(e => e.id === selectedEditionId);
         if (!edition) return;
 
-        // Récupérer les questions de l'édition
-        const { data: editionQuestions } = await supabase
-          .from("editions_questions")
-          .select("question_id")
-          .eq("edition_id", selectedEditionId);
+        // Exécuter toutes les requêtes en parallèle pour optimiser la performance
+        const [editionQuestionsResult, membersResult, votesResult] = await Promise.all([
+          supabase.from("editions_questions").select("question_id").eq("edition_id", selectedEditionId),
+          supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name"),
+          supabase.from("votes").select("id, question_id, voter_id, member_id, ranking").eq("edition_id", selectedEditionId)
+        ]);
 
-        if (!editionQuestions || editionQuestions.length === 0) {
+        if (!editionQuestionsResult.data || editionQuestionsResult.data.length === 0) {
           setQuestions([]);
+          setMembers(membersResult.data || []);
+          setResults([]);
           return;
         }
 
-        const questionIds = editionQuestions.map((eq: any) => eq.question_id);
+        // Récupérer les détails des questions
+        const questionIds = editionQuestionsResult.data.map((eq: any) => eq.question_id);
         const { data: questionsData } = await supabase
           .from("questions")
           .select("id, text")
           .in("id", questionIds);
 
-        // Récupérer les membres du groupe
-        const { data: membersData } = await supabase
-          .from("members")
-          .select("id, name, group_id")
-          .eq("group_id", edition.group_id)
-          .order("name");
-
-        // Récupérer tous les votes
-        const { data: votesData } = await supabase
-          .from("votes")
-          .select("id, question_id, voter_id, member_id, ranking")
-          .eq("edition_id", selectedEditionId);
-
         setQuestions(questionsData || []);
-        setMembers(membersData || []);
+        setMembers(membersResult.data || []);
 
         // Calculer les résultats
-        if (questionsData && membersData && votesData) {
-          const calculatedResults = calculateResults(questionsData, membersData, votesData);
+        if (questionsData && membersResult.data && votesResult.data) {
+          const calculatedResults = calculateResults(questionsData, membersResult.data, votesResult.data);
           setResults(calculatedResults);
         }
 
