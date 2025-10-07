@@ -14,7 +14,12 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user && member) {
-      router.push('/admin')
+      // Rediriger selon le type d'utilisateur
+      if (member.is_admin) {
+        router.push('/admin') // Admin vers page admin
+      } else {
+        router.push('/') // Membre normal vers page d'accueil
+      }
     } else if (user && !member) {
       setError('Votre email n\'est pas associé à un membre enregistré. Contactez un administrateur.')
     }
