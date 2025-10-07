@@ -65,7 +65,7 @@ export default function HomePage() {
       setLoading(false);
     }
     checkAdmin();
-  }, [isSuperAdmin]);
+  }, []); // Supprimer la dépendance à isSuperAdmin
 
   useEffect(() => {
     async function loadEditions() {
