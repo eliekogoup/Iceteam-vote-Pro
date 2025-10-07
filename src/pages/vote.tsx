@@ -12,7 +12,7 @@ type Question = { id: number; text: string };
 
 export default function VotePage() {
   const router = useRouter();
-  const { editionId } = router.query;
+  const { edition: editionIdParam } = router.query;
   const { user, member, isAdmin, isLoading } = useAuth();
   
   const [editions, setEditions] = useState<Edition[]>([]);
@@ -32,8 +32,8 @@ export default function VotePage() {
     if (!user || !member) return;
     
     // Utiliser l'édition passée en paramètre ou récupérer depuis sessionStorage
-    if (editionId) {
-      setSelectedEditionId(Number(editionId));
+    if (editionIdParam) {
+      setSelectedEditionId(Number(editionIdParam));
     } else {
       const storedEditionId = sessionStorage.getItem("editionId");
       if (storedEditionId) {
@@ -43,7 +43,7 @@ export default function VotePage() {
     
     // Utiliser automatiquement l'ID du membre connecté
     setSelectedMemberId(member.id);
-  }, [user, member, editionId]);
+  }, [user, member, editionIdParam]);
 
   // Charger éditions
   useEffect(() => {
