@@ -5,6 +5,9 @@ import { checkIsAdmin } from '../../lib/admin-utils';
 import { deleteMemberSafely, handleSecureDeletion } from '../../lib/secure-deletion';
 import GlobalNav from "../../components/GlobalNav";
 import AdminNav from "../../components/AdminNav";
+import dynamic from 'next/dynamic'
+import { clientCache } from '../../lib/client-cache';
+import { perf } from '../../lib/perf';
 
 type Group = { id: number; name: string };
 type Member = {
@@ -26,6 +29,9 @@ export default function MembresAdmin() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [members, setMembers] = useState<Member[]>([]);
+  const [page, setPage] = useState(0);
+  const [limit] = useState(100);
+  const MembersVirtualList = dynamic(() => import('../../components/MembersVirtualList'), { ssr: false })
   const [groups, setGroups] = useState<Group[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -70,40 +76,50 @@ export default function MembresAdmin() {
   }, [isAdmin, authLoading]);
 
   const loadMembers = async () => {
-    const { data, error } = await supabase
-      .from("members")
-      .select(`
-        *,
-        member_groups(
-          groups(id, name)
-        )
-      `)
-      .order("id");
-
-    if (error) {
-      console.error("Erreur lors du chargement des membres:", error);
-    } else {
-      // Transformer les données pour inclure les groupes
-      const membersWithGroups = (data || []).map((member: any) => ({
+    const offset = page * limit
+    perf.start('admin:loadMembers:page:' + page);
+    try {
+      const res = await fetch(`/api/admin/members?limit=${limit}&offset=${offset}`)
+      const payload = await res.json()
+      const data = payload?.data || []
+      const membersWithGroups = data.map((member: any) => ({
         ...member,
         groups: member.member_groups?.map((mg: any) => mg.groups) || []
-      }));
-      setMembers(membersWithGroups);
+      }))
+      // append page results
+      setMembers(prev => page === 0 ? membersWithGroups : [...prev, ...membersWithGroups])
+    } catch (error) {
+      console.error('Erreur lors du chargement des membres paginés:', error)
+    } finally {
+      perf.end('admin:loadMembers:page:' + page);
     }
   };
 
   const loadGroups = async () => {
+    const cacheKey = 'admin:groups:all';
+    const cached = clientCache.get<any[]>(cacheKey);
+    if (cached) {
+      setGroups(cached);
+      // update default newMember group if needed
+      if (cached.length > 0) {
+        setNewMember(prev => ({ ...prev, group_id: cached[0].id, group_ids: [cached[0].id] }));
+      }
+      return;
+    }
+    perf.start('admin:loadGroups');
     const { data, error } = await supabase
       .from("groups")
       .select("*")
       .order("id");
+    perf.end('admin:loadGroups');
 
     if (error) {
       console.error("Erreur lors du chargement des groupes:", error);
       alert("Erreur lors du chargement des groupes. Assurez-vous qu'au moins un groupe existe.");
     } else {
-      const groupsData = data || [];
-      setGroups(groupsData);
+  const groupsData = data || [];
+  setGroups(groupsData);
+  clientCache.set(cacheKey, groupsData, 10 * 60 * 1000); // 10min groups change rarely
       
       // Mettre à jour le groupe par défaut si des groupes existent
       if (groupsData.length > 0) {
@@ -553,86 +569,96 @@ export default function MembresAdmin() {
             Aucun membre trouvé. Ajoutez votre premier membre ci-dessus.
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nom</th>
-                <th>Email</th>
-                <th>Groupes</th>
-                <th>Admin</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map(member => {
-                // Afficher les groupes multiples ou le groupe unique pour compatibilité
-                const memberGroups = member.groups && member.groups.length > 0 
-                  ? member.groups 
-                  : groups.filter(g => g.id === member.group_id);
-                  
-                return (
-                  <tr key={member.id}>
-                    <td>{member.id}</td>
-                    <td>{getDisplayName(member)}</td>
-                    <td>
-                      {member.email || (
-                        <span style={{ color: '#999', fontStyle: 'italic' }}>
-                          ⚠️ Pas d'email
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      {memberGroups.length > 0 ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                          {memberGroups.map((group, index) => (
-                            <span 
-                              key={group.id} 
-                              style={{ 
-                                backgroundColor: '#e3f2fd', 
-                                color: '#1565c0', 
-                                padding: '2px 8px', 
-                                borderRadius: '12px', 
-                                fontSize: '0.875rem',
-                                border: '1px solid #90caf9'
-                              }}
-                            >
-                              {group.name}
-                            </span>
-                          ))}
+          // If large list, use virtualized list
+          members.length > 200 ? (
+            <div>
+              <MembersVirtualList members={members} />
+              <div style={{ marginTop: 12, textAlign: 'center' }}>
+                <button onClick={() => { setPage(prev => prev + 1); loadMembers(); }} className="btn-secondary">Charger plus</button>
+              </div>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nom</th>
+                  <th>Email</th>
+                  <th>Groupes</th>
+                  <th>Admin</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map(member => {
+                  // Afficher les groupes multiples ou le groupe unique pour compatibilité
+                  const memberGroups = member.groups && member.groups.length > 0 
+                    ? member.groups 
+                    : groups.filter(g => g.id === member.group_id);
+                    
+                  return (
+                    <tr key={member.id}>
+                      <td>{member.id}</td>
+                      <td>{getDisplayName(member)}</td>
+                      <td>
+                        {member.email || (
+                          <span style={{ color: '#999', fontStyle: 'italic' }}>
+                            ⚠️ Pas d'email
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {memberGroups.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {memberGroups.map((group, index) => (
+                              <span 
+                                key={group.id} 
+                                style={{ 
+                                  backgroundColor: '#e3f2fd', 
+                                  color: '#1565c0', 
+                                  padding: '2px 8px', 
+                                  borderRadius: '12px', 
+                                  fontSize: '0.875rem',
+                                  border: '1px solid #90caf9'
+                                }}
+                              >
+                                {group.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: '#999', fontStyle: 'italic' }}>Aucun groupe</span>
+                        )}
+                      </td>
+                      <td>
+                        {member.is_admin ? (
+                          <span style={{ color: '#22c55e', fontWeight: 'bold' }}>✅ Admin</span>
+                        ) : (
+                          <span style={{ color: '#6b7280' }}>👤 Membre</span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            onClick={() => handleEditMember(member)}
+                            className="btn-secondary small"
+                          >
+                            ✏️ Modifier
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(member.id)} 
+                            className="btn-danger small"
+                          >
+                            🗑️ Supprimer
+                          </button>
                         </div>
-                      ) : (
-                        <span style={{ color: '#999', fontStyle: 'italic' }}>Aucun groupe</span>
-                      )}
-                    </td>
-                    <td>
-                      {member.is_admin ? (
-                        <span style={{ color: '#22c55e', fontWeight: 'bold' }}>✅ Admin</span>
-                      ) : (
-                        <span style={{ color: '#6b7280' }}>👤 Membre</span>
-                      )}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
-                          onClick={() => handleEditMember(member)}
-                          className="btn-secondary small"
-                        >
-                          ✏️ Modifier
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(member.id)} 
-                          className="btn-danger small"
-                        >
-                          🗑️ Supprimer
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
         )}
       </div>
     </div>

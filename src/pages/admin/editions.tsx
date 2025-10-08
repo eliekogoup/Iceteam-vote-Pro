@@ -5,6 +5,7 @@ import { checkIsAdmin } from '../../lib/admin-utils';
 import { deleteEditionSafely } from '../../lib/secure-deletion';
 import AdminNav from "../../components/AdminNav";
 import GlobalNav from "../../components/GlobalNav";
+import { clientCache } from '../../lib/client-cache';
 
 type Group = { id: number; name: string };
 type Edition = { id: number; title: string; group_id: number; no_self_vote: boolean };
@@ -46,14 +47,35 @@ export default function EditionsAdmin() {
   }, [isAdmin, authLoading]);
 
   async function fetchGroups() {
+    const cacheKey = 'admin:groups:all';
+    const cached = clientCache.get<any[]>(cacheKey);
+    if (cached) {
+      setGroups(cached);
+      return;
+    }
+
     const { data } = await supabase.from("groups").select("*").order("id");
-    if (data) setGroups(data);
+    if (data) {
+      setGroups(data);
+      clientCache.set(cacheKey, data, 10 * 60 * 1000);
+    }
   }
 
   async function fetchEditions() {
     setLoading(true);
+    const cacheKey = 'admin:editions:all';
+    const cached = clientCache.get<any[]>(cacheKey);
+    if (cached) {
+      setEditions(cached);
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase.from("editions").select("*").order("id");
-    if (!error && data) setEditions(data);
+    if (!error && data) {
+      setEditions(data);
+      clientCache.set(cacheKey, data, 2 * 60 * 1000);
+    }
     setLoading(false);
   }
 

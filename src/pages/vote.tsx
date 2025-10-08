@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { supabase } from "../lib/supabaseClient";
+import { clientCache } from "../lib/client-cache";
+import { perf } from "../lib/perf";
 import { useAuth } from "../hooks/useAuth";
 import { DragDropContext, Droppable, Draggable, DropResult } from "react-beautiful-dnd";
 import AdminNav from "../components/AdminNav";
@@ -48,8 +50,20 @@ export default function VotePage() {
   // Charger éditions
   useEffect(() => {
     const fetchEditions = async () => {
+      const cacheKey = 'editions:all';
+      const cached = clientCache.get<Edition[]>(cacheKey);
+      if (cached) {
+        setEditions(cached);
+        return;
+      }
+
+      perf.start('fetchEditions');
       const { data } = await supabase.from("editions").select("id, title, group_id, no_self_vote").order("id");
-      if (data) setEditions(data);
+      perf.end('fetchEditions');
+      if (data) {
+        setEditions(data);
+        clientCache.set(cacheKey, data, 2 * 60 * 1000);
+      }
     };
     fetchEditions();
   }, []);
@@ -60,21 +74,24 @@ export default function VotePage() {
     const edition = editions.find(e => e.id === selectedEditionId);
     if (!edition) return;
     const fetchMembers = async () => {
-      const { data } = await supabase
-        .from("members")
-        .select("id, nom, prenom, group_id")
-        .eq("group_id", edition.group_id);
-      if (data) {
-        console.debug('fetchMembers raw:', data);
-        const convertedMembers = data.map(m => ({ id: m.id, name: `${m.prenom} ${m.nom}`, group_id: m.group_id }));
-        console.debug('fetchMembers converted:', convertedMembers);
-        setMembers(convertedMembers);
-        
-        // Filtrer les membres selon les règles no_self_vote
-        const filtered = edition.no_self_vote 
-          ? convertedMembers.filter(m => m.id !== selectedMemberId)
-          : convertedMembers;
-        setMembersToRank(filtered);
+      perf.start('fetchMembers:aggregate:' + selectedEditionId);
+      try {
+        const qs = new URLSearchParams({ editionId: String(selectedEditionId), userEmail: member?.email || '' })
+        const res = await fetch(`/api/edition-aggregate?${qs.toString()}`)
+        const payload = await res.json()
+        const data = payload?.data
+        if (data) {
+          const convertedMembers = (data.members || []).map((m: any) => ({ id: m.id, name: m.prenom ? `${m.prenom} ${m.nom}` : m.name, group_id: m.group_id }))
+          setMembers(convertedMembers)
+          const filtered = edition.no_self_vote ? convertedMembers.filter(m => m.id !== selectedMemberId) : convertedMembers
+          setMembersToRank(filtered)
+          setQuestions((data.questions || []).map((q: any) => ({ id: q.id, text: q.title || q.text || '' })))
+          setHasAlreadyVoted(!!data.userHasVoted)
+        }
+      } catch (err) {
+        console.error('Erreur fetchMembers aggregate', err)
+      } finally {
+        perf.end('fetchMembers:aggregate:' + selectedEditionId)
       }
     };
     fetchMembers();
@@ -84,15 +101,25 @@ export default function VotePage() {
   useEffect(() => {
     if (!selectedEditionId) return;
     const fetchQuestions = async () => {
+      const cacheKey = `edition:${selectedEditionId}:questions`;
+      const cached = clientCache.get<Question[]>(cacheKey);
+      if (cached) {
+        setQuestions(cached);
+        return;
+      }
+
+      perf.start('fetchQuestions:' + selectedEditionId);
       const { data } = await supabase
         .from("editions_questions")
         .select("question_id, questions(id, text)")
         .eq("edition_id", selectedEditionId);
+      perf.end('fetchQuestions:' + selectedEditionId);
       if (data) {
         console.debug('fetchQuestions raw:', data);
         const questionsList = data.map(item => item.questions).filter(Boolean).flat() as Question[];
         console.debug('fetchQuestions list:', questionsList);
         setQuestions(questionsList);
+        clientCache.set(cacheKey, questionsList, 5 * 60 * 1000); // TTL 5min
       }
     };
     fetchQuestions();

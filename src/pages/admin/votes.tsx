@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { clientCache } from '../../lib/client-cache';
+import { perf } from '../../lib/perf';
 import { checkIsAdmin } from "../../lib/admin-utils";
 import AdminNav from "../../components/AdminNav";
 import { useSuperAdmin } from "../../hooks/useSuperAdmin";
@@ -33,7 +35,18 @@ export default function VotesPage() {
   // Charger éditions (pour tous les membres autorisés)
   useEffect(() => {
     if (isAuthorized) {
-      supabase.from("editions").select("id, title, group_id").order("id").then(({ data }) => setEditions(data || []));
+      const cacheKey = 'admin:editions:all';
+      const cached = clientCache.get<any[]>(cacheKey);
+      if (cached) {
+        setEditions(cached);
+      } else {
+        perf.start('admin:fetchEditions');
+        supabase.from("editions").select("id, title, group_id").order("id").then(({ data }) => {
+          perf.end('admin:fetchEditions');
+          setEditions(data || []);
+          if (data) clientCache.set(cacheKey, data, 2 * 60 * 1000);
+        });
+      }
     }
   }, [isAuthorized]);
 
@@ -46,35 +59,38 @@ export default function VotesPage() {
       return;
     }
     const fetchAll = async () => {
-      const edition = editions.find(e => e.id === selectedEditionId);
-      
-      // Exécuter toutes les requêtes en parallèle pour optimiser la performance
-      const [edqResult, vsResult, msResult] = await Promise.all([
-        // Questions pour l'édition
-        supabase.from("editions_questions").select("question_id").eq("edition_id", selectedEditionId),
-        // Votes
-        supabase.from("votes").select("id, edition_id, question_id, voter_id, member_id, ranking").eq("edition_id", selectedEditionId),
-        // Membres pour l'édition (si édition trouvée)
-        edition ? supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name") : Promise.resolve({ data: [] })
-      ]);
-      
-      // Questions
-      const qids = edqResult.data?.map((e: any) => e.question_id) || [];
-      if (qids.length > 0) {
-        const { data: qs } = await supabase.from("questions").select("id, text").in("id", qids);
-        setQuestions(qs || []);
-      } else {
-        setQuestions([]);
+      try {
+        const qs = new URLSearchParams({ editionId: String(selectedEditionId) })
+        const aggRes = await fetch(`/api/edition-aggregate?${qs.toString()}`)
+        const aggPayload = await aggRes.json()
+        const agg = aggPayload?.data || {}
+        setMembers(agg.members || [])
+        setVotes(agg.votes || [])
+        setQuestions(agg.questions || [])
+      } catch (err) {
+        console.error('Erreur fetch aggregate votes page', err)
+        setMembers([])
+        setVotes([])
+        setQuestions([])
       }
-      
-      // Membres et votes
-      setMembers(msResult.data || []);
-      setVotes(vsResult.data || []);
     };
     fetchAll();
   }, [selectedEditionId, editions, isAuthorized]);
 
   // Helpers
+  // Pré-indexer les votes pour rendu efficace
+  const votesByQuestion = votes.reduce((acc: Record<number, any[]>, v: any) => {
+    if (!acc[v.question_id]) acc[v.question_id] = [];
+    acc[v.question_id].push(v);
+    return acc;
+  }, {} as Record<number, any[]>);
+
+  const votesByVoter = votes.reduce((acc: Record<number, any[]>, v: any) => {
+    if (!acc[v.voter_id]) acc[v.voter_id] = [];
+    acc[v.voter_id].push(v);
+    return acc;
+  }, {} as Record<number, any[]>);
+
   const getMemberName = (id: number) => members.find((m) => m.id === id)?.name || `Membre ${id}`;
 
   // Suppression (réservée aux super-admins)

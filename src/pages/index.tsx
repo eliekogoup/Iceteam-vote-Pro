@@ -3,6 +3,8 @@ import { supabase } from "../lib/supabaseClient";
 import Link from "next/link";
 import AdminNav from "../components/AdminNav";
 import { getEditionsWithStatus } from "../lib/voting-utils";
+import { clientCache } from "../lib/client-cache";
+import { perf } from "../lib/perf";
 import { useSuperAdmin } from "../hooks/useSuperAdmin";
 
 interface EditionWithStatus {
@@ -73,22 +75,35 @@ export default function HomePage() {
       
       setEditionsLoading(true);
       try {
-        console.log('🔄 Chargement des éditions pour:', user.email);
-        const editionsData = await getEditionsWithStatus(user.email);
-        console.log('📊 Éditions reçues:', editionsData);
-        setEditions(editionsData);
-        
+        const cacheKey = `editions:${user.email}`;
+        const cached = clientCache.get<EditionWithStatus[]>(cacheKey);
+        let dataForStats: EditionWithStatus[] = [];
+        if (cached) {
+          console.log('📋 Éditions chargées depuis le cache');
+          setEditions(cached);
+          dataForStats = cached;
+        } else {
+          perf.start('getEditionsWithStatus');
+          console.log('🔄 Chargement des éditions pour:', user.email);
+          const editionsData = await getEditionsWithStatus(user.email);
+          perf.end('getEditionsWithStatus');
+          console.log('📊 Éditions reçues:', editionsData);
+          setEditions(editionsData);
+          clientCache.set(cacheKey, editionsData, 2 * 60 * 1000); // TTL 2min
+          dataForStats = editionsData;
+        }
+
         // Calculer les statistiques - logique corrigée
         // Un vote est "en attente" si l'utilisateur n'a pas voté ET l'édition n'est pas terminée
-        const pending = editionsData.filter(e => !e.userHasVoted && !e.isComplete).length;
+        const pending = dataForStats.filter(e => !e.userHasVoted && !e.isComplete).length;
         // Un vote est "effectué" si l'utilisateur a voté ET l'édition n'est pas terminée
-        const completed = editionsData.filter(e => e.userHasVoted && !e.isComplete).length;
+        const completed = dataForStats.filter(e => e.userHasVoted && !e.isComplete).length;
         // Un vote est "terminé" si l'édition est complète
-        const finished = editionsData.filter(e => e.isComplete).length;
-        const total = editionsData.length;
+        const finished = dataForStats.filter(e => e.isComplete).length;
+        const total = dataForStats.length;
         
         console.log('📊 Statistiques calculées:', { pending, completed, finished, total });
-        console.log('📊 Détail des éditions:', editionsData.map(e => ({
+        console.log('📊 Détail des éditions:', dataForStats.map(e => ({
           title: e.title,
           userHasVoted: e.userHasVoted,
           canViewResults: e.canViewResults,

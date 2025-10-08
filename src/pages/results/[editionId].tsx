@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
+import { clientCache } from '../../lib/client-cache';
 import Link from "next/link";
 
 export default function ResultsPage() {
@@ -77,7 +78,14 @@ export default function ResultsPage() {
       // Exécuter toutes les requêtes en parallèle pour optimiser la performance
       const [editionQuestionsResult, membersResult, votesResult] = await Promise.all([
         supabase.from("editions_questions").select("question_id").eq("edition_id", edition.id),
-        supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name"),
+        (async () => {
+          const cacheKey = `results:edition:${edition.id}:members`;
+          const cached = clientCache.get<any[]>(cacheKey);
+          if (cached) return { data: cached };
+          const res = await supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name");
+          if (res.data) clientCache.set(cacheKey, res.data, 5 * 60 * 1000);
+          return res;
+        })(),
         supabase.from("votes").select("id, question_id, voter_id, member_id, ranking").eq("edition_id", edition.id)
       ]);
 
@@ -90,17 +98,41 @@ export default function ResultsPage() {
 
       // Récupérer les détails des questions
       const questionIds = editionQuestionsResult.data.map((eq: any) => eq.question_id);
-      const { data: questionsData } = await supabase
-        .from("questions")
-        .select("id, text")
-        .in("id", questionIds);
+
+      const qCacheKey = `results:edition:${edition.id}:questions:${questionIds.join(',')}`;
+      const cachedQs = clientCache.get<any[]>(qCacheKey);
+      let questionsData: any[] | null = null;
+      if (cachedQs) {
+        questionsData = cachedQs;
+      } else {
+        const { data } = await supabase
+          .from("questions")
+          .select("id, text")
+          .in("id", questionIds);
+        questionsData = data || [];
+        if (questionsData.length) clientCache.set(qCacheKey, questionsData, 5 * 60 * 1000);
+      }
 
       setQuestions(questionsData || []);
       setMembers(membersResult.data || []);
 
       // Calculer les résultats
       if (questionsData && membersResult.data && votesResult.data) {
-        const calculatedResults = calculateResults(questionsData, membersResult.data, votesResult.data);
+        // Pré-indexer les votes côté client pour des calculs plus rapides
+        const votes = votesResult.data;
+        const votesByQuestion: Record<number, any[]> = votes.reduce((acc, v) => {
+          if (!acc[v.question_id]) acc[v.question_id] = [];
+          acc[v.question_id].push(v);
+          return acc;
+        }, {} as Record<number, any[]>);
+
+        const votesByMember: Record<number, any[]> = votes.reduce((acc, v) => {
+          if (!acc[v.member_id]) acc[v.member_id] = [];
+          acc[v.member_id].push(v);
+          return acc;
+        }, {} as Record<number, any[]>);
+
+        const calculatedResults = calculateResults(questionsData, membersResult.data, votesResult.data, votesByQuestion, votesByMember);
         setResults(calculatedResults);
       }
 
@@ -111,50 +143,46 @@ export default function ResultsPage() {
 
 
 
-  // Calculer les résultats avec classement (identique à admin/resultats)
-  function calculateResults(questions: any[], members: any[], votes: any[]) {
+  // Calculer les résultats avec classement en utilisant des index de votes pour performance
+  function calculateResults(
+    questions: any[],
+    members: any[],
+    votes: any[],
+    votesByQuestion?: Record<number, any[]>,
+    votesByMember?: Record<number, any[]>
+  ) {
+    // Construire les index si non fournis
+    const vByQ = votesByQuestion || votes.reduce((acc: Record<number, any[]>, v: any) => {
+      if (!acc[v.question_id]) acc[v.question_id] = [];
+      acc[v.question_id].push(v);
+      return acc;
+    }, {} as Record<number, any[]>);
+
     return questions.map(question => {
-      const questionVotes = votes.filter(v => v.question_id === question.id);
-      
-      // Calculer le score moyen pour chaque membre
+      const questionVotes = vByQ[question.id] || [];
+      const maxRank = questionVotes.length ? Math.max(...questionVotes.map((v: any) => v.ranking)) : 0;
+
+      // Index votes par membre pour cette question
+      const votesByMemberLocal = questionVotes.reduce((acc: Record<number, any[]>, v: any) => {
+        if (!acc[v.member_id]) acc[v.member_id] = [];
+        acc[v.member_id].push(v);
+        return acc;
+      }, {} as Record<number, any[]>);
+
       const memberScores = members.map(member => {
-        const memberVotes = questionVotes.filter(v => v.member_id === member.id);
-        
-        if (memberVotes.length === 0) {
-          return {
-            member,
-            averageRank: null,
-            voteCount: 0,
-            totalPoints: 0
-          };
-        }
-
-        const totalRank = memberVotes.reduce((sum, vote) => sum + vote.ranking, 0);
+        const memberVotes = votesByMemberLocal[member.id] || [];
+        if (memberVotes.length === 0) return { member, averageRank: null, voteCount: 0, totalPoints: 0 };
+        const totalRank = memberVotes.reduce((sum: number, vote: any) => sum + vote.ranking, 0);
         const averageRank = totalRank / memberVotes.length;
-        
-        // Calculer les points (rang inversé : meilleur rang = plus de points)
-        const maxRank = Math.max(...questionVotes.map(v => v.ranking));
-        const totalPoints = memberVotes.reduce((sum, vote) => sum + (maxRank + 1 - vote.ranking), 0);
-
-        return {
-          member,
-          averageRank,
-          voteCount: memberVotes.length,
-          totalPoints,
-          votes: memberVotes
-        };
+        const totalPoints = memberVotes.reduce((sum: number, vote: any) => sum + (maxRank + 1 - vote.ranking), 0);
+        return { member, averageRank, voteCount: memberVotes.length, totalPoints, votes: memberVotes };
       });
 
-      // Trier par rang moyen (plus petit = meilleur)
       const sortedMembers = memberScores
         .filter(ms => ms.averageRank !== null)
         .sort((a, b) => a.averageRank! - b.averageRank!);
 
-      return {
-        question,
-        memberScores: sortedMembers,
-        totalVotes: questionVotes.length
-      };
+      return { question, memberScores: sortedMembers, totalVotes: questionVotes.length };
     });
   }
 

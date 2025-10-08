@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import AdminNav from "../../components/AdminNav";
+import { clientCache } from '../../lib/client-cache';
 
 export default function ResultatsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -31,9 +32,18 @@ export default function ResultatsPage() {
   // Charger les éditions
   useEffect(() => {
     if (!loading) {
-      supabase.from("editions").select("id, title, group_id").order("id").then(({ data }) => {
-        if (data) setEditions(data);
-      });
+      const cacheKey = 'admin:editions:all';
+      const cached = clientCache.get<any[]>(cacheKey);
+      if (cached) {
+        setEditions(cached);
+      } else {
+        supabase.from("editions").select("id, title, group_id").order("id").then(({ data }) => {
+          if (data) {
+            setEditions(data);
+            clientCache.set(cacheKey, data, 2 * 60 * 1000);
+          }
+        });
+      }
     }
   }, [loading]);
 
@@ -53,25 +63,21 @@ export default function ResultatsPage() {
         if (!edition) return;
 
         // Exécuter toutes les requêtes en parallèle pour optimiser la performance
-        const [editionQuestionsResult, membersResult, votesResult] = await Promise.all([
-          supabase.from("editions_questions").select("question_id").eq("edition_id", selectedEditionId),
-          supabase.from("members").select("id, name, group_id").eq("group_id", edition.group_id).order("name"),
-          supabase.from("votes").select("id, question_id, voter_id, member_id, ranking").eq("edition_id", selectedEditionId)
-        ]);
+        // Use server-side aggregated endpoint to fetch edition members, votes, questions
+        const qs = new URLSearchParams({ editionId: String(selectedEditionId) })
+        const aggRes = await fetch(`/api/edition-aggregate?${qs.toString()}`)
+        const aggPayload = await aggRes.json()
+        const agg = aggPayload?.data || {}
+        const membersResult = { data: agg.members }
+        const votesResult = { data: agg.votes }
+        const questionsData = agg.questions || []
 
-        if (!editionQuestionsResult.data || editionQuestionsResult.data.length === 0) {
+        if (!questionsData || questionsData.length === 0) {
           setQuestions([]);
           setMembers(membersResult.data || []);
           setResults([]);
           return;
         }
-
-        // Récupérer les détails des questions
-        const questionIds = editionQuestionsResult.data.map((eq: any) => eq.question_id);
-        const { data: questionsData } = await supabase
-          .from("questions")
-          .select("id, text")
-          .in("id", questionIds);
 
         setQuestions(questionsData || []);
         setMembers(membersResult.data || []);
@@ -92,48 +98,46 @@ export default function ResultatsPage() {
 
   // Calculer les résultats avec classement
   function calculateResults(questions: any[], members: any[], votes: any[]) {
+    // Construire un index des votes par question pour éviter des filtres répétés
+    const votesByQuestion: Record<number, any[]> = votes.reduce((acc, v) => {
+      const qid = v.question_id;
+      if (!acc[qid]) acc[qid] = [];
+      acc[qid].push(v);
+      return acc;
+    }, {} as Record<number, any[]>);
+
     return questions.map(question => {
-      const questionVotes = votes.filter(v => v.question_id === question.id);
-      
-      // Calculer le score moyen pour chaque membre
+      const questionVotes = votesByQuestion[question.id] || [];
+
+      // Pré-calculer le maxRank pour cette question
+      const maxRank = questionVotes.length ? Math.max(...questionVotes.map(v => v.ranking)) : 0;
+
+      // Construire un index des votes par membre pour cette question
+      const votesByMember: Record<number, any[]> = questionVotes.reduce((acc, v) => {
+        if (!acc[v.member_id]) acc[v.member_id] = [];
+        acc[v.member_id].push(v);
+        return acc;
+      }, {} as Record<number, any[]>);
+
+      // Calculer le score moyen pour chaque membre en utilisant l'index
       const memberScores = members.map(member => {
-        const memberVotes = questionVotes.filter(v => v.member_id === member.id);
-        
+        const memberVotes = votesByMember[member.id] || [];
         if (memberVotes.length === 0) {
-          return {
-            member,
-            averageRank: null,
-            voteCount: 0,
-            totalPoints: 0
-          };
+          return { member, averageRank: null, voteCount: 0, totalPoints: 0 };
         }
 
         const totalRank = memberVotes.reduce((sum, vote) => sum + vote.ranking, 0);
         const averageRank = totalRank / memberVotes.length;
-        
-        // Calculer les points (rang inversé : meilleur rang = plus de points)
-        const maxRank = Math.max(...questionVotes.map(v => v.ranking));
         const totalPoints = memberVotes.reduce((sum, vote) => sum + (maxRank + 1 - vote.ranking), 0);
 
-        return {
-          member,
-          averageRank,
-          voteCount: memberVotes.length,
-          totalPoints,
-          votes: memberVotes
-        };
+        return { member, averageRank, voteCount: memberVotes.length, totalPoints, votes: memberVotes };
       });
 
-      // Trier par rang moyen (plus petit = meilleur)
       const sortedMembers = memberScores
         .filter(ms => ms.averageRank !== null)
         .sort((a, b) => a.averageRank! - b.averageRank!);
 
-      return {
-        question,
-        memberScores: sortedMembers,
-        totalVotes: questionVotes.length
-      };
+      return { question, memberScores: sortedMembers, totalVotes: questionVotes.length };
     });
   }
 
