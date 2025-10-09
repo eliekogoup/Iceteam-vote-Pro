@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_CONTAINER_REGISTRY: iceteamvotepro
+  AZURE_CONTAINER_REGISTRY: iceteamvoteapp
   CONTAINER_APP_NAME: iceteam-vote-app
   RESOURCE_GROUP: rg-iceteam-vote
   IMAGE_NAME: iceteam-vote-pro
