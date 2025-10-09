@@ -2,6 +2,8 @@
 
 Un système de vote moderne et complet utilisant **Next.js** et **Supabase** pour organiser des votes avec classement par glisser-déposer.
 
+> 🚀 **Déployé sur Azure Container Apps** - Version stable v0.2
+
 ## ✨ Fonctionnalités
 
 ### 🎯 **Vote Interactif**
